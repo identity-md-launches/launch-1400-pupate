@@ -66,12 +66,16 @@ if (!/^0x[0-9a-fA-F]{64}$/.test(KEY)) fail('KEEPER_PRIVATE_KEY is not set or not
 const steps = { status, pre, question, manifest, open, post, report, finish };
 const cmd = process.argv[2] || 'status';
 if (!steps[cmd]) fail(`unknown step ${cmd}; one of: ${Object.keys(steps).join(', ')}`);
-steps[cmd]().catch((e) => {
-  const body = e instanceof ImdError ? `\n${JSON.stringify(e.body, null, 1).slice(0, 2500)}` : '';
-  console.error(`\n${cmd} failed: ${scrub(e.stack || e.message)}${scrub(body)}`);
-  console.error(`progress: ${PROGRESS_FILE}`);
-  process.exitCode = 1;
-});
+// Deferred by one tick: a step that reaches a helper declared further down before its first await
+// (manifest does) must find this module fully evaluated.
+Promise.resolve()
+  .then(() => steps[cmd]())
+  .catch((e) => {
+    const body = e instanceof ImdError ? `\n${JSON.stringify(e.body, null, 1).slice(0, 2500)}` : '';
+    console.error(`\n${cmd} failed: ${scrub(e.stack || e.message)}${scrub(body)}`);
+    console.error(`progress: ${PROGRESS_FILE}`);
+    process.exitCode = 1;
+  });
 
 // ------------------------------------------------------------------ status
 
@@ -505,7 +509,7 @@ async function finish() {
   FloorFeed  https://etherscan.io/address/${p.feed}
   launch tx  https://etherscan.io/tx/${p.launchTx}
   IMD launch ${IMD_API}/launches/${p.launch?.launchId} (launch #${p.launch?.launchNumber}); explorer https://explorer.imd.fun/launches
-  IMD job    ${IMD_API}/jobs/${p.launch?.jobId}/report.md (the audit report)
+  IMD job    https://explorer.imd.fun/jobs/${p.launch?.jobId} (record: ${IMD_API}/jobs/${p.launch?.jobId})
   oracle     ${IMD_API}/oracle/requests/${p.oracle?.requestId}
   Uniswap    https://app.uniswap.org/explore/tokens/ethereum/${p.token}
   buy        https://pupate.fun/buy/`);
