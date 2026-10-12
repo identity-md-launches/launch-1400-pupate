@@ -4,25 +4,25 @@
     "onchain": "univ4_hook",
     "chainId": 1,
     "pairWith": "eth",
-    "economics": { "poolBps": 8500 },
+    "economics": {
+      "poolBps": 8500
+    },
     "repoUrl": "https://github.com/pupate-IMD/PUPATE",
     "baseCommit": "bfdb454af44d863229fcd8d52c8eb86a215d0eda",
-    "references": ["uniswap-v4-hooks", "uniswap-v4-security"],
+    "references": [
+      "uniswap-v4-hooks",
+      "uniswap-v4-security"
+    ],
     "shape": "chain",
     "github": true,
     "steps": [
-      { "skill": "audit-imported-code" },
       {
-        "skill": "adapt-contract-project",
-        "objective": "Adapt only the launch manifest. PupateToken and PupateHook are final and independently reviewed: do not change anything under src/ or test/. Set the pool fee tier to the policy allowlist (12500) if the manifest's differs, keep tickSpacing 60, and keep the hook's constructor arguments: the PoolManager, the Cocoon address as sink, the timelock as owner.",
-        "acceptanceCriteria": [
-          "No file under src/ or test/ is modified",
-          "launch.json's fee tier is on the policy allowlist",
-          "PupateHook's constructor arguments are the PoolManager, the Cocoon sink and the timelock owner"
-        ]
+        "skill": "audit-imported-code"
       },
-      { "skill": "adversarial-review" }
+      {
+        "skill": "adversarial-review"
+      }
     ],
-    "objective": "Pupate: a Uniswap v4 hook (PupateHook) that taxes the ETH side of every trade in the launch pool and hands the tax to a pre-deployed vault (Cocoon). The vault buys Identity MD seats on Seaport 1.6 at the price the IMD oracle attests, lists each seat at a falling price, and burns PUPATE with the proceeds. Deploy PupateToken (plain ERC-20, 1,000,000,000 supply, 18 decimals) and PupateHook from launch.json at the base commit; the hook's constructor takes the PoolManager, the Cocoon address as sink and the 48-hour timelock as owner (both deployed before the launch). Buy tax opens at 99% and falls one point per minute to a standing 6%; sells pay 6% from the first block; the owner can only lower the tax. Liquidity may be added only in the block that opens the pool. Contracts carry 214 Foundry tests, invariants, a mainnet-fork test of the Seaport path, and two independent reviews (docs/REVIEW.md)."
+    "objective": "Token name: Pupate\nToken symbol: PUPATE\n\nTotal supply 1,000,000,000 with 18 decimals, minted once to its deployer. Ethereum mainnet (chain id 1), a Uniswap v4 hook launch paired with native ETH; 85% of supply to the pool.\n\nLAUNCH THIS REPOSITORY AS IT IS. The workspace is a finished, tested and independently reviewed project at the given base commit. The deliverable is the launch of this exact code, not new code: do not rewrite, refactor or reformat it, and do not modify src/, test/, script/, lib/ or foundry.toml. PupateHook is bound by its constructor to two contracts that are already deployed on Ethereum mainnet from this same source, so a changed hook would not fit them: the vault Cocoon at 0x0add7b9584cd73cef21b39014e3ff6077be53441 (the hook's sink) and an OpenZeppelin TimelockController with a 48-hour delay at 0x8be826082c0fbaec485048aa26ef42ac147898ec (the hook's owner).\n\nWHAT TO DO. (1) Verify that launch.json is a valid manifest for the launch factory: hook PupateHook with the three-argument constructor ($poolManager, the Cocoon address, the timelock address); permissions afterInitialize, beforeAddLiquidity, beforeSwap, afterSwap, beforeSwapReturnDelta, afterSwapReturnDelta (flags 0x18CC, which the constructor validates against the hook's own address, so the hook needs a mined CREATE2 salt); token PupateToken with a zero-argument constructor; pool fee 12500, tick spacing 60, paired currency native ETH. (2) Run the existing test suite (forge test; the suites under test/fork run only when MAINNET_RPC_URL is set and skip themselves otherwise) and report the result. (3) Review the code as it is and report findings; if you find a defect, report it with a reproducing test instead of changing the source.\n\nKEEP THESE FACTS UNCHANGED. PupateToken is a plain ERC-20: no owner, mint, pause, fee, transfer limit or blacklist; burn and burnFrom only reduce supply. PupateHook taxes the ETH side of every swap in its launch pool, which is the first native-ETH pool initialised on it; swaps whose sender is the sink are not taxed (the vault's own buybacks). Sells pay the standing tax of 6%. Buys pay 99% when the pool opens, falling by one percentage point a minute until it meets the standing tax about 93 minutes later. The tax is collected inside the swap as ERC-6909 claims on the PoolManager; no ETH moves and no contract other than the PoolManager is called from a swap callback. A taxed swap that names its ETH amount and cannot fill in full reverts (PartialFill). flush() is permissionless and hands the hook's whole ETH balance to Cocoon.depositTax. The owner can only lower the standing tax and transfer ownership; nothing can raise the tax, change the sink or change the launch pool.\n\nLIQUIDITY. beforeAddLiquidity admits liquidity only into the launch pool and only in the transaction that initialises it: afterInitialize sets a mark in transient storage (EIP-1153), which the EVM clears when that transaction ends. The launch factory's deploy, initialise and seed transaction passes; every later transaction is refused, in the same block as well, and after the launch the pool's liquidity can only shrink. Removing liquidity and collecting fees are never gated. Known residual, kept on purpose and pinned by test_theOpeningTransactionIsTheGateNotTheAccountThatOpens: the mark names no account, so code that gets control later inside the opening transaction could add liquidity too; after it initialises the pool, the launch factory calls only the PoolManager, the launched token and its own registry in that transaction. test/fork/LaunchFactory.fork.t.sol rehearses this launch through the real launch factory on a mainnet fork. Every test opens and seeds its pool in one call, so none depends on how a forge version scopes transient storage between top-level calls; the suite passes on forge 1.7.1 and on forge 1.8.3, in default and --isolate modes.\n\nCONTEXT. Cocoon, FloorFeed and PupateVesting are in src/ for review and are not deployed by this launch. Cocoon and FloorFeed are already deployed and are owned by the launch wallet until the launch: right after it, script/PostLaunch.s.sol wires the vault to the new pool (that needs the token and hook addresses), moves the wallet's 5% of supply into a 12-month linear vesting contract, pins the oracle question, and transfers both contracts to the timelock. The launch factory sets the opening price; launch.json's initialPrice is the policy's 10 ETH valuation of the supply. Three independent reviews are logged in docs/REVIEW.md. Do not claim the code is audited or secure."
   }
 }
