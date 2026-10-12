@@ -14,8 +14,8 @@ export default function Mechanism() {
         no fee, no limit, no pause, no mint.
       </p>
       <p>
-        Nobody can add liquidity after the block the pool opened in. IMD’s factory initialises and seeds the pool in one
-        transaction, so the only position the pool ever has is the factory’s. This closes the one way of trading around a
+        Nobody can add liquidity once the transaction that opened the pool has ended. IMD’s factory initialises and seeds
+        the pool in that one transaction, so the only position the pool ever has is the factory’s. This closes the one way of trading around a
         swap tax: resting liquidity just above or below the price and letting takers fill it. Removing liquidity is never
         blocked.
       </p>

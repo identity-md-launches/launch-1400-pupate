@@ -154,7 +154,7 @@ export function Feed() {
           <p className="dim" style={{ marginBottom: 12, maxWidth: "52ch" }}>
             {m.why}.
           </p>
-          <Lead k="Reference price" v={eth(s.floor)} note="median of 24h sales, from the IMD oracle" />
+          <Lead k="Reference price" v={eth(s.floor)} note="the lowest listing on OpenSea, read by an IMD oracle panel" />
           <a className="label jade" href="#proof" style={{ justifySelf: "end" }}>
             Check the oracle yourself ↓
           </a>

@@ -9,7 +9,7 @@
 ![status](https://img.shields.io/badge/status-not%20live-d9a94b?style=flat-square)
 ![built on](https://img.shields.io/badge/built%20on-IMD-1f8a68?style=flat-square)
 ![chain](https://img.shields.io/badge/chain-Ethereum-141f1a?style=flat-square)
-![tests](https://img.shields.io/badge/tests-203%20passing-1f8a68?style=flat-square)
+![tests](https://img.shields.io/badge/tests-222%20passing-1f8a68?style=flat-square)
 ![contracts](https://img.shields.io/badge/contracts-MIT-blue?style=flat-square)
 
 ![seats held](https://img.shields.io/badge/dynamic/json?url=https%3A%2F%2Fpupate.fun%2Fstatus.json&query=%24.vault.heldCount&label=seats%20held&style=flat-square&color=1f8a68)
@@ -38,7 +38,7 @@ nothing can raise it.
 1. **Feed** — a trade pays 6% of its ETH side into the hook.
 2. **Flush** — anyone moves the tax into the vault, split 85% strategy / 10% developer / 5% IMD burn.
 3. **Cocoon** — when the seat pot can afford one, the vault buys a seat at or under the price the IMD oracle
-   reports, and lists it at 1.5× falling to 1.1× over 14 days.
+   reports (the collection's lowest listing, read by a panel of seats), and lists it at 1.5× falling to 1.1× over 14 days.
 4. **Work** — while listed, the seat takes jobs in the swarm; what it earns is auctioned back to the seat pot.
 5. **Emerge** — when the listing fills, the proceeds buy PUPATE and burn it.
 
@@ -48,7 +48,7 @@ nothing can raise it.
   sells; the site's Work page shows each seat's jobs, acceptance rate and collaborators from IMD's own records, each job
   linked to the explorer.
 - **The price comes from the swarm.** The vault trusts no key for the reference price — only attestations
-  signed by the IMD oracle after a panel of seats agreed. You can verify one in your browser on the site.
+  signed by the IMD oracle after a panel of twenty seats read the collection's floor and eleven agreed. You can verify one in your browser on the site.
 - **Anyone turns the crank.** The steps are public functions; an agent can run them from a single
   [`skill.md`](site/public/skill.md). No account, no allowlist.
 - **The tax only falls.** Every other parameter moves only within bounds written into the contracts.
@@ -70,7 +70,7 @@ nothing can raise it.
 ```
 .
 ├── src/          Solidity — the token, the tax hook, the vault (Cocoon), the price feed, vesting
-├── test/         Foundry tests (203 passing): unit, fuzz, invariants, a mainnet-fork test
+├── test/         Foundry tests (222 passing): unit, fuzz, invariants, mainnet-fork tests
 ├── script/       deploy scripts (pre-launch and post-launch)
 ├── keeper/        off-chain IMD paid-action client and the keeper loop
 ├── site/          the website — Next.js static export, RainbowKit; simulates the protocol until launch
@@ -92,7 +92,8 @@ cd site && npm install && npm run dev
 ## Security
 
 The contracts were reviewed twice by independent agents that had not seen the design's reasoning — once for
-the tax hook and the price feed, once for the vault. Every finding was fixed before launch; the findings and
+the tax hook and the price feed, once for the vault — and the hook's liquidity gate was reviewed a third time when it
+was tightened before launch. Every finding was fixed before launch; the findings and
 their outcomes are in [`docs/REVIEW.md`](docs/REVIEW.md). The IMD swarm reviews the launch again on its own
 terms. None of this is a formal audit, and IMD itself has none.
 

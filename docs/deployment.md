@@ -20,9 +20,10 @@ Deploys, in order: `TimelockController` (48 hours; the developer proposes, anyon
 `constructorArgs` line for `launch.json`.
 
 Then make the first oracle request through IMD's paid-action flow with FloorFeed as the consumer:
-`consumer.verifyingContract` = the FloorFeed address, `consumer.chainId` = the launch chain,
-`chainId` = the evidence chain (mainnet), the floor question from `docs/phase0-findings.md`. The
-response carries `questionHash`; keep it, and keep the attestation for the first report.
+`consumer.verifyingContract` = the FloorFeed address in lowercase, `consumer.chainId` = the launch chain,
+`chainId` = the evidence chain (mainnet), the floor question in `keeper/questions/floor.question.txt`
+(`keeper/lib/oracle.mjs::floorQuoteInput` builds the body). The oracle request's record carries
+`questionHash`; keep it, and keep the attestation for the first report.
 
 ## 2. The launch
 
@@ -73,7 +74,8 @@ timelock.
 ## The launch request (IMD policy v34, 2026-10-07)
 
 - The pool's LP fee tier must be **12500** (1.25%), tick spacing 60. The ETH-paired opening valuation is fixed by policy at 10 ETH on mainnet (20 ETH on Sepolia), up to 100 ETH.
-- A `launch.open` for a self-hosted repository must carry `shape: "chain"` and the steps `audit-imported-code → adapt-contract-project → adversarial-review`; the adapt step owns its own write budget and may not be given `paths`. Ready bodies: `keeper/questions/launch.check.json` (mainnet) and `launch.sepolia.check.json`. Run `node keeper/bin/imd.mjs check launch.open <body>` first: it is free and must return no blockers. Update `baseCommit` to the commit being launched.
+- A `launch.open` for a self-hosted repository carries `shape: "chain"`. Pupate's steps are `audit-imported-code → adversarial-review`: IMD plans an audit of the code as it is, the manifest, four specialist audits, a judge and the deployment, and the only node with a write path is the manifest node (`launch.json`), so no agent can change `src/` or `test/`. Launch #1205 was admitted in this shape. An `adapt-contract-project` step between the two would give an agent a write budget over the source, which Pupate cannot use: the hook is bound to a Cocoon that is already deployed. Ready bodies: `keeper/questions/launch.check.json` (mainnet) and `launch.sepolia.check.json`. Run `node keeper/bin/imd.mjs check launch.open <body>` first: it is free and must return no blockers. `script/mainnet/launch.mjs manifest` sets `repoUrl` and `baseCommit`.
+- Admission runs seven checks, visible on the launch record (`GET /launches/:id`, `admissionChecks`): `provenance`, `findings` (the judge's blocking findings must all be resolved), `independent_review`, `bytecode` (every contract under `src/` reproducible, and free of `CALLCODE`, `DELEGATECALL` and `SELFDESTRUCT`), `manifest`, `protected_invariants` (seven tests against the creation code) and `economics`. IMD builds with forge 1.8.3; run the suite on that version before paying.
 - IMD pays the launch transaction up to `gasCeilingWei` = 0.05 ETH on mainnet. Measured on the local mainnet fork (`script/local/`): token deploy 415,644 gas, hook deploy through the CREATE2 factory 1,390,744, pool open + single-sided seed in one transaction 289,486, about 2.1M in all before IMD's own factory overhead. At 2.1M the ceiling holds up to ~24 gwei; budget for 3.5M (~14 gwei) to be safe, and launch while the base fee is well under that.
 - Rehearse locally first: `node script/local/up.mjs` deploys the whole stack on an anvil fork of mainnet and `cd site && npx --yes tsx scripts/fork-e2e.ts` exercises the site's live modules against it (buy and sell through the Universal Router, flush).
 
@@ -88,9 +90,36 @@ timelock.
 | FloorFeed | `0x5A215aa9883cEfE5fa74085ba66288388b83700C` | attester `0x5598Aa91…2982`, evidence chain 1; owned by the deployer until `post` |
 | Cocoon | `0x0adD7b9584cd73CeF21B39014e3ff6077BE53441` | owned by the deployer until `post` |
 
-From block 26161806. Nothing has been paid to IMD yet. Next: `question` (0.5 IMD, pins the question
-hash and yields the first attestation), `manifest`, `open` (0.5 IMD), `post`, `report`, `finish`.
-The runner's progress file carries the same addresses.
+From block 26161806.
+
+`question` ran on 2026-10-12. The wallet approved Permit2 for IMD
+(`0x74667fc1ef6042085f7ca5cfc37371a986d728caabba8eb08480e1e389f21165`) and paid 0.5 IMD for the floor
+question (order `ce7d267d-cc49-4905-86b8-a4a1a28a86cb`, payment
+`0x6293f038829467a2c36690c43bbc7058ac3ab8bf182ec1645f8f31e74ba469f2`). Oracle request
+`db921753-2067-4094-8547-649f63a72179` was attested in under two minutes: twelve of the twenty seats
+answered, all twelve with 2.68 ETH read from OpenSea, against a quorum of eleven.
+
+| | |
+|---|---|
+| Question hash, to be pinned by `post` | `0x0bd457cf1b0d092b4f12904589b3f08b5c67793cc4ef5292d79b2733ba5bab24` |
+| First attested floor | 2.68 ETH, issued 2026-10-12 09:41:57 UTC, signed by `0x5598Aa91…2982` for FloorFeed on chain 1 |
+
+Next: `manifest`, `open` (0.5 IMD), `post`, `report`, `finish`. The runner's progress file carries the
+same addresses and ids.
+
+Before the first payment the free checks changed three things, recorded in spec revision 7 and
+`docs/phase0-findings.md`: the hook's liquidity gate is the opening transaction (the hook is not deployed
+yet, so only its source changed; Cocoon and FloorFeed above are as deployed), the floor question asks a
+panel for the collection's lowest listing instead of a chain recipe for a median of sales, and the paid
+path of the IMD client was corrected and dry-run to its last free step. One more thing surfaced at the
+first payment itself: this machine's clock ran 13 seconds fast, which put the permit's deadline past the
+window IMD allows (`invalid_payment_window`, nothing charged); the client now takes the time from IMD's
+own answers.
+
+Before the second payment an independent review of the gate change came back with nothing blocking
+(`docs/REVIEW.md`): one regression test and one fork test through IMD's real factory were added, the
+gate's one residual is stated in `launch.json` and in the request, and the request took the two-step
+shape above.
 
 ## What the Sepolia rehearsal taught (2026-10-10)
 

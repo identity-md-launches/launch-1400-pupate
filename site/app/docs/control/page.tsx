@@ -79,20 +79,27 @@ export default function Control() {
         <dd>For the first 93 minutes the buy tax is far above what token scanners treat as normal. It is meant to be.</dd>
         <dt>The reference price can be pushed.</dt>
         <dd>
-          Wash sales move a median. The rise limit holds the vault to 25% per 6 hours, the tolerance to 105% of the
-          reference, and the split to at most 70% of the strategy share. A sustained push can still raise the reference
-          by about a quarter every six hours for as long as the oracle reports it.
+          The floor is the lowest listing a panel of seats reads on OpenSea. Listing cheaper lowers it, which only offers
+          the vault a cheaper seat; raising it means buying or outlasting every cheaper listing, and a panel can also
+          simply be wrong. The rise limit holds the vault to 25% per 6 hours, the tolerance to 105% of the reference, and
+          the split to at most 70% of the strategy share.
         </dd>
         <dt>Seats may not sell.</dt>
         <dd>After 14 days a seat sits at 1.1× until bought. Capital is tied up if the market falls under that.</dd>
         <dt>Seat yield may be thin.</dt>
         <dd>Earnings are split across every connected seat in the swarm. The design works without them, as a tax-and-flip strategy.</dd>
-        <dt>The oracle may stop.</dt>
-        <dd>Buying halts and the split falls back to 50/50, with the seat pot accumulating unspent, until reports resume.</dd>
+        <dt>The oracle may stop, or OpenSea may be unreadable.</dt>
+        <dd>
+          A panel that cannot read the floor, or does not agree on it, signs nothing. Buying halts and the split falls
+          back to 50/50, with the seat pot accumulating unspent, until reports resume.
+        </dd>
         <dt>The sink is fixed.</dt>
         <dd>If the vault ever refused deposits, collected tax would stay in the PoolManager as claims. It accepts plain ETH by design.</dd>
-        <dt>Two integrations are unexercised.</dt>
-        <dd>Pairing a contract-held seat and the floor question are confirmed on Sepolia before mainnet, not before.</dd>
+        <dt>One integration is unexercised.</dt>
+        <dd>
+          Pairing a contract-held seat with a worker is confirmed with the vault’s first seat, not before. The floor
+          question was put to the oracle on mainnet before the launch: twelve seats answered, all with the same price.
+        </dd>
         <dt>A competitor exists.</dt>
         <dd>Another strategy runs on the same collection with a tax that cannot be avoided, because its token was not launched through IMD.</dd>
       </dl>

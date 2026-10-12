@@ -87,3 +87,31 @@ which passed against the code as reviewed.
   handler settles in the same call, so stale states never persist. Worth adding before launch.
 - Cocoon's runtime is 24,191 bytes against the 24,576 limit. Any further addition should come with
   a trim or a split.
+
+## Before the mainnet launch (2026-10-12)
+
+One change to a reviewed contract, made after reading how IMD's own audit treats hook launches, and reviewed independently before it was launched.
+
+| # | Finding | Severity | Outcome |
+|---|---|---|---|
+| 1 | The liquidity gate admitted liquidity for the whole block that opened the launch pool. A transaction placed behind the launch in the same block could add a one-sided ETH range and take PUPATE from sellers without paying the buy tax, including during the 99% opening window. IMD's audit judge parked launch #1183 for the same class of gate ("exempts the whole opening timestamp, not the factory's opening transaction"). | Medium | **Fixed.** The gate is the opening transaction: `afterInitialize` sets a transient-storage mark, `beforeAddLiquidity` requires it, and the EVM clears it when the transaction ends. `test_theOpeningTransactionSeedsTheLaunchPool`, `test_liquidityIsClosedOnceTheOpeningTransactionEnds`, `test_liquidityStaysClosedInLaterBlocks`, `test_inTheOpeningTransactionOnlyTheLaunchPoolTakesLiquidity`. The fixture opens and seeds in one call, as the factory does; the suite passes in forge's default mode and with `--isolate`, and the launch was replayed on a fork of mainnet with the real PoolManager. |
+
+Checked against three real IMD launch transactions (#775, #1283, #1341): the factory deploys the token, the hook and the distributor, initialises the pool and adds its one position in a single transaction.
+
+### Independent review of the change (2026-10-12)
+
+A reviewer that had not written the change was given the diff, the hook and its tests, and asked to break the gate or the launch. Verdict: safe to launch, nothing blocking. It ran the suite on forge 1.7.1 and on forge 1.8.3 (the version IMD's checks build with) in default and `--isolate` modes, mutated the gate to see which tests notice, and replayed the launch on a fork of mainnet through IMD's real `LaunchFactory` (source verified on Sourcify), called as its deployer.
+
+| # | Finding | Severity | Outcome |
+|---|---|---|---|
+| 1 | The mark is set only where the launch pool is recorded, in the same call frame, so the record and the mark are set or reverted together; it cannot outlive the transaction; the slot is the hook's own; `tload` in a `view` callback is legal. | Clean | No change. |
+| 2 | Residual: the mark names no account and is not consumed, so anything that gets control later in the opening transaction can add to the launch pool. With IMD's factory nothing does: `launch()` is callable only by the factory's deployer, and after `initialize` the factory calls only the PoolManager, the launched token and its own registry. Only IMD's own key could use it, by wrapping the launch in a batch. | Low | **Accepted and disclosed.** Consuming the mark on the first add, or binding it to the initialiser, would close it, at the price of making the launch depend on the factory seeding exactly once and from the initialising address; the reviewer recommended leaving the code as it is for this launch. `test_theOpeningTransactionIsTheGateNotTheAccountThatOpens` pins the behaviour, and `launch.json` and the launch request state it. IMD admitted launch #1205 with the same residual, rated low. |
+| 3 | The real factory's one transaction passes the gate. A seed into any pool other than the launch pool would revert, so an untaxed seeded pool cannot result. The factory's fee collection (a zero-liquidity `modifyLiquidity`) is routed to the remove callbacks, which the hook does not gate. A harness that initialises and seeds in two transactions now fails, as intended. | Clean | Kept as a test: `test/fork/LaunchFactory.fork.t.sol` launches this repository's token and hook through the real factory on a fork. The launch call uses about 3.4M gas; liquidity offered in the next transaction is refused; a 1 ETH buy at the open pays 0.99 ETH of tax; `claimFees` still collects. |
+| 4 | Nothing else changed: ABI, method ids, storage layout and permissions (0x18CC) are identical; the runtime gained one `TSTORE` and one `TLOAD` and lost one `NUMBER`; it has no `DELEGATECALL`, `CALLCODE`, `SELFDESTRUCT` or `CHAINID`. | Clean | No change. |
+| 5 | Test gap: nothing showed that a later `initialize` on the hook cannot set the mark again. A mutant that sets it in every `afterInitialize` survived the suite. | Should fix (tests) | **Fixed.** `test_laterPoolsOnTheHookDoNotReopenTheLaunchPool` initialises a second native pool and a pool without ETH in a later transaction, then offers the launch pool liquidity and is refused. It fails against that mutant. |
+| 6 | No other blocking candidate in the hook: the constructor has no chain-id or code-existence gate, the launch-pool rule cannot be front-run under this factory, the four tax modes were re-derived against v4's delta accounting, and `unlockCallback` is reachable only through the hook's own `unlock`. | Clean | No change. |
+| 7 | The stated test count depended on the forge version, and one older fork test failed `forge fmt --check`. | Note | Counts are stated with their version; the file is formatted. |
+
+After the review the suite is 222 tests on forge 1.7.1, none failing, in default and `--isolate` modes; forge 1.8.3 counts the same suite as 215, because it reports each contract's invariants as one test. Ten are mainnet-fork tests that skip themselves without `MAINNET_RPC_URL`.
+
+The same day, IMD's public records of other hook launches were read for what admission checks: every contract under `src/` must build reproducibly and carry no `CALLCODE`, `DELEGATECALL` or `SELFDESTRUCT` (all of Pupate's are clean, the pre-deployed ones included), seven protected tests run against the creation code (flags against permissions, callbacks refusing callers other than the PoolManager, the token minting the policy's supply to its deployer), and a judge ranks the audit's findings, parking the launch on one that blocks and stays open.

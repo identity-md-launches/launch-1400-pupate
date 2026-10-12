@@ -23,7 +23,8 @@ export function How() {
             a contract: no one can withdraw from it.
           </li>
           <li>
-            <b>Cocoon.</b> When the vault can afford a seat at the reference price, which the IMD oracle sets from recent sales,
+            <b>Cocoon.</b> When the vault can afford a seat at the reference price, the lowest listing on OpenSea as a panel of
+            IMD seats reads it and the oracle signs it,
             it buys one on Seaport, pairs it with a worker, and lists it for sale from day one: at 1.5× what it paid, falling to
             1.1× over 14 days. While it waits for a buyer, the seat works and earns.
           </li>
@@ -46,7 +47,7 @@ export function How() {
             </tr>
             <tr>
               <td>Pool fee</td>
-              <td>1.25%, the Uniswap v4 tier IMD opens hook pools at</td>
+              <td>1.25%, set by IMD&apos;s launch policy: 1% to the launch wallet, 0.25% to the IMD network</td>
             </tr>
             <tr>
               <td>Opening window</td>
@@ -98,7 +99,8 @@ export function How() {
           <details>
             <summary>Why does the price of a seat matter?</summary>
             <p>
-              The vault buys at or under the price the IMD oracle reports, a median of recent sales, so it never overpays, and it
+              The vault buys at or under the price the IMD oracle reports, the collection&apos;s lowest listing, plus a 5%
+              tolerance, so the most it pays is a little above the cheapest seat on the market, and it
               lists every seat above what it paid.
             </p>
           </details>
@@ -113,8 +115,9 @@ export function How() {
           <details>
             <summary>What does the developer get?</summary>
             <p>
-              10% of the tax, which pays for the oracle reports and the servers, and 5% of the supply, vesting in a straight line
-              over 12 months. Nothing else: no share of seat sales and no access to the vault.
+              10% of the tax, which pays for the oracle reports and the servers; 5% of the supply, vesting in a straight line
+              over 12 months; and, under IMD&apos;s launch terms, 1 of the pool fee&apos;s 1.25 points on every trade. No share
+              of seat sales and no access to the vault.
             </p>
           </details>
           <details>
@@ -130,7 +133,7 @@ export function How() {
               <a href="https://github.com/pupate-IMD/PUPATE" target="_blank" rel="noreferrer">
                 github.com/pupate-IMD/PUPATE
               </a>
-              : the contracts, the keeper, this site, 214 tests and two independent reviews. The deployed addresses appear in the
+              : the contracts, the keeper, this site, 222 tests and three independent reviews. The deployed addresses appear in the
               footer, with verified source, once they exist.
             </p>
           </details>

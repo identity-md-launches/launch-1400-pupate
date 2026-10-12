@@ -9,21 +9,23 @@ export default function Oracle() {
     <Doc slug="oracle">
       <h2>Why a reference price</h2>
       <p>
-        The vault must know what a seat is worth before it buys one, and it must not take anyone’s word for it. Asks are
-        not on-chain, so the reference is built from sales: the <b>median price of the collection’s on-chain sales over
-        the last 24 hours</b>. This document calls it the floor; it is a reference built from recent sales, not the
-        lowest ask.
+        The vault must know what a seat is worth before it buys one, and it must not take anyone’s word for it. The
+        reference is the collection’s floor: <b>the lowest active listing OpenSea reports for it</b>, read by a panel of
+        seats and signed by the IMD oracle. The vault buys only at or under the floor plus its tolerance, so the most it
+        ever pays is a few percent above the cheapest seat on the market.
       </p>
 
       <h2>Where it comes from</h2>
       <p>
         The IMD oracle. A request names a question, a panel size and a quorum; a panel of seats answers independently,
-        and when enough of them agree the oracle signs an <b>attestation</b> with the answer, the block window it read,
-        the panel’s size, quorum and agreement, and a validity window. The signature is EIP-712, domain{" "}
+        and when enough of them agree the oracle signs an <b>attestation</b> with the answer, the panel’s size, quorum
+        and agreement, and a validity window. For this question twenty seats each read the collection’s floor on OpenSea,
+        and eleven must agree within 2%. IMD’s on-chain evidence can count and sum logs and read pool prices, none of
+        which yields the price of a seat, so the panel reads the marketplace. The signature is EIP-712, domain{" "}
         <code>IdentityMD Oracle</code> version 2, bound to the contract that asked: an attestation issued to one consumer
         is worthless to another.
       </p>
-      <p>Each request costs 0.5 IMD. The developer’s keeper requests one every six hours; anyone else may too.</p>
+      <p>Each request costs 0.5 IMD. The developer’s keeper pays for them, up to one every six hours; anyone else may too.</p>
 
       <h2>What FloorFeed checks</h2>
       <p>
@@ -79,7 +81,8 @@ export default function Oracle() {
 
       <h2>The rise limit</h2>
       <p>
-        Wash sales can move a median of recent sales. The limit caps how fast that can reach the vault: the stored price
+        A floor read from a marketplace can be wrong for a while, by mistake or by design. The limit caps how fast a
+        higher one can reach the vault: the stored price
         may rise by at most 25% per 6 hours, measured between the issue times of two reports, whether or not the earlier
         report is still fresh. A report held back until the previous one lapses gains nothing, and reports in quick
         succession cannot compound. A genuine jump larger than the limit is reflected once enough time has passed; until

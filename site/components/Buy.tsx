@@ -68,7 +68,8 @@ export function Buy() {
               point a minute to 6%. The panel shows the rate of the moment; buying later in the window costs less.
             </li>
             <li>
-              <b>Slippage 1%</b> by default; <b>pool fee 1.25%</b>, the Uniswap v4 tier IMD opens hook pools at.
+              <b>Slippage 1%</b> by default; <b>pool fee 1.25%</b>, set by IMD&apos;s launch policy (1% to the launch wallet,
+              0.25% to the IMD network).
             </li>
             <li>
               Supply is fixed at 1,000,000,000 and only falls as the vault burns. Nobody can mint, pause or raise the tax.

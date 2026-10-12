@@ -80,7 +80,7 @@ export default function Launch() {
         <li>Seaport 1.6 for every seat order, signature-free and validated on-chain.</li>
         <li>The IMD oracle for the reference price, and IMD’s worker authorisation for pairing.</li>
         <li>OpenZeppelin’s TimelockController for the 48-hour delay.</li>
-        <li>Foundry: 203 tests, including fuzz and stateful invariant tests, plus a mainnet-fork test of the Seaport path.</li>
+        <li>Foundry: 222 tests, including fuzz and stateful invariant tests, plus mainnet-fork tests of the Seaport path and of the launch through IMD’s own factory.</li>
       </ul>
 
       <Aside tone="gold">

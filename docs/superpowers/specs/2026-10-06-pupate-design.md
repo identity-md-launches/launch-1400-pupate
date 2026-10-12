@@ -1,7 +1,7 @@
 # Pupate: design spec
 
 Date: 2026-10-06
-Status: revision 5. Revision 2 followed the Phase 0 desk findings in `docs/phase0-findings.md`; revision 3 followed the independent review of Plan 2 in `docs/REVIEW.md`; revision 4 records the decisions made while building Cocoon; revision 5 followed the independent review of Cocoon. The change lists at the end say what moved.
+Status: revision 7. Revision 2 followed the Phase 0 desk findings in `docs/phase0-findings.md`; revision 3 followed the independent review of Plan 2 in `docs/REVIEW.md`; revision 4 records the decisions made while building Cocoon; revision 5 followed the independent review of Cocoon; revision 6 moved the pool to IMD's 1.25% tier; revision 7 records what the checks before the mainnet launch changed. The change lists at the end say what moved.
 
 ## Summary
 
@@ -29,7 +29,7 @@ Pupate is a strategy token on Ethereum mainnet, launched through the IMD launchp
 
 ## Flow
 
-1. A trader buys or sells PUPATE in the launch pool. The hook takes 6% of the ETH side of the trade. The pool's own 1.25% LP fee applies as well and goes to the liquidity position, which IMD holds.
+1. A trader buys or sells PUPATE in the launch pool. The hook takes 6% of the ETH side of the trade. The pool's own 1.25% LP fee applies as well; under IMD's launch terms 1% of every trade goes to the wallet that paid for the launch and 0.25% to the IMD network.
 2. Anyone can flush the collected tax to Cocoon. Cocoon splits it: 85% strategy, 10% developer, 5% IMD burn. The strategy share is divided between the seat pot and the burn pot according to the current mode.
 3. Anyone can trigger a seat purchase when the seat pot can afford one.
 4. The purchased seat is listed for resale at a descending price and paired to a worker device.
@@ -53,7 +53,7 @@ A plain ERC-20, as IMD requires: 18 decimals, fixed supply of 1,000,000,000 mint
 A Uniswap v4 hook on the launch pool. Not upgradeable. Constructor arguments: the PoolManager, the sink (Cocoon), and the owner (the timelock).
 
 - **Launch pool.** The first native-ETH pool initialised on the hook becomes the launch pool. Only that pool is taxed. The IMD factory deploys the hook and initialises the pool in one transaction, so no other pool can take that place.
-- **Liquidity.** Liquidity can be added only to the launch pool, and only in the block that opens it, which is when IMD's factory seeds it. After that the pool's liquidity can only shrink; removing liquidity is never blocked. This closes trading by resting liquidity, which the hook could not tax.
+- **Liquidity.** Liquidity can be added only to the launch pool, and only in the transaction that opens it, which is IMD's factory seeding it: the hook marks that transaction in transient storage, and the mark is gone when the transaction ends. After that the pool's liquidity can only shrink; removing liquidity is never blocked. This closes trading by resting liquidity, which the hook could not tax.
 - **Standing tax.** 6% of the ETH side of every buy and every sell. On a buy that is 6% of the ETH the trader pays; on a sell it is 6% of the ETH the pool pays out. Rounded down.
 - **Launch schedule.** The buy tax starts at 99% when the launch pool opens and falls continuously, one percentage point per minute, until it meets the standing tax (93 minutes at 6%). Sells are always at the standing tax.
 - **Collection.** The tax is taken inside the swap as PoolManager claims. No ETH moves, and no contract other than the PoolManager is called, during a swap. `flush()` is callable by anyone: it converts the claims to ETH and hands the hook's whole ETH balance to Cocoon. ETH forced into the hook reaches Cocoon the same way, so deliveries can exceed the hook's `totalTax`; nothing downstream assumes they are equal.
@@ -68,12 +68,12 @@ Why a launch schedule and not a wallet cap: the token must be plain, and a hook 
 Stores the latest reference price of the collection as attested by the IMD oracle. Built and tested in Plan 1.
 
 - `report(attestation, signature)` is callable by anyone. It verifies the oracle's EIP-712 signature (domain `IdentityMD Oracle`, version `2`, bound to FloorFeed's own address and chain) and stores the price and its issue time.
-- Only attestations for one pinned question are accepted. The question asks for the median price of the collection's on-chain sales over the last 24 hours. The owner sets the question's hash, because the hash is only known once the first request has been made; changing it later goes through the timelock. Setting the question clears the stored price, and the first report after that is not rate-limited. Setting the same hash again is the way to clear a bad value.
+- Only attestations for one pinned question are accepted. The question asks a panel of twenty seats for the collection's floor, the lowest active listing OpenSea reports, and needs eleven of them to agree within 2%. The owner sets the question's hash, because the hash is only known once the first request has been made; changing it later goes through the timelock. Setting the question clears the stored price, and the first report after that is not rate-limited. Setting the same hash again is the way to clear a bad value.
 - The attestation must name the evidence chain fixed at deployment (mainnet, where the collection lives), carry a quorum of at least 4 that is a majority of its panel, and be valid for at least the freshness window.
 - A report is fresh for 6 hours after it was issued, or until the attestation's own expiry if the owner has since lengthened the window.
 - **Rise limit.** The stored price may rise by at most 25% per 6 hours between two reports, measured between their issue times. The limit applies whether or not the earlier report is still fresh, so a report held back until the previous one lapses gains nothing, and reports in quick succession cannot compound. Falls are not limited, because a lower reference only makes the vault buy less. A genuine jump larger than the limit is reflected once enough time has passed; until then the vault simply does not buy.
 
-This document calls the stored value "the floor". It is a reference price built from recent sales, not the lowest ask, because asks are not on-chain.
+This document calls the stored value "the floor". Since revision 7 it is the lowest ask, read from the marketplace by the panel: IMD's on-chain evidence cannot compute a price from Seaport's events, and a floor that follows the cheapest listing bounds what the vault can be made to pay.
 
 ### Cocoon (vault)
 
@@ -192,7 +192,7 @@ All site copy is English.
 
 - 10% of the tax, which is 0.6% of each trade at the standing rate. It accrues in Cocoon and is claimed by the developer address.
 - 5% of token supply, vested linearly over 12 months.
-- Nothing from the pool's LP fee. IMD holds the liquidity position, and no share of it is documented.
+- From the pool's LP fee, what IMD's launch terms give the wallet that paid for the launch: 1 of the 1.25 points on every trade (the other 0.25 goes to the IMD network; anyone can call the distribution). This is IMD's rule, not Pupate's contracts, and it can change with IMD's policy.
 
 ## Running costs
 
@@ -242,8 +242,8 @@ The Sepolia rehearsal in Plan 4 is where the remaining Phase 0 questions are set
 
 - **The tax can be avoided in other pools.** The tax lives in the hook of the launch pool. The token is a plain ERC-20, so anyone can open another pool for it and trade there untaxed. IMD6900 does not have this weakness: its token refuses transfers that bypass its pool, which is possible because it was not launched through IMD. The launch pool holds 85% of supply and the site trades through it, which keeps most early volume there, but the leak grows with success. Lowering the standing tax narrows it.
 - **Token scanners will flag the launch.** For the first 93 minutes the buy tax is far above what scanners treat as normal.
-- **Reference-price manipulation.** Wash sales can move a median of recent sales. Limited by the rise limit of 25% per 6 hours, which applies whether or not the previous report is fresh, and by the price tolerance and the 30–70% split range. A sustained manipulation can still raise the reference by about 25% every 6 hours for as long as the oracle keeps reporting the inflated figure, and a 24-hour sales window means one burst of wash sales lasts a day. Anyone holding a seat can still sell it to the vault at up to 105% of the reference price.
-- **Trades made by providing liquidity would not be taxed.** The hook taxes swaps, so a seller who could rest PUPATE as a narrow position just above the price would be filled by buyers without paying the sell tax. The liquidity gate closes this: liquidity can be added only in the block that opens the launch pool, and IMD's factory opens and seeds in one transaction (verified on launch 775). What remains is a bot bundling its own position into that same block, which would need the launch transaction to be visible in advance. The pool therefore never has liquidity beyond the factory's position, and nobody can provide liquidity later.
+- **Reference-price manipulation.** The floor is the lowest listing the panel reads on OpenSea. Listing cheaper lowers it, which only offers the vault a cheaper seat; raising it takes buying or outlasting every cheaper listing, or a panel that is wrong. Limited by the rise limit of 25% per 6 hours, which applies whether or not the previous report is fresh, and by the price tolerance and the 30–70% split range. Anyone holding a seat can still sell it to the vault at up to 105% of the reference price, which is now 105% of the cheapest listing rather than of a median of past sales that sits above the market while prices fall.
+- **Trades made by providing liquidity would not be taxed.** The hook taxes swaps, so a seller who could rest PUPATE as a narrow position just above the price would be filled by buyers without paying the sell tax. The liquidity gate closes this: liquidity can be added only in the transaction that opens the launch pool, and IMD's factory opens and seeds in one transaction (verified on launches 775, 1283 and 1341). Until revision 7 the gate was the opening block, which left room for a bot to put its own position behind the launch transaction in the same block; the transaction-scoped mark removes that. The pool therefore never has liquidity beyond the factory's position, and nobody can provide liquidity later.
 - **Thin seat yield.** Seat earnings are split across all connected seats (about 650 today) and may be small. The design still works without them, as a tax-and-flip strategy.
 - **Seats that do not sell.** After 14 days a seat sits at 1.1x until bought. Capital is tied up if the market falls below that.
 - **Oracle dependency.** If the IMD oracle stops, buying halts and the split falls back to 50/50, with the seat pot accumulating unspent.
@@ -308,3 +308,13 @@ After the independent review of Cocoon (`docs/REVIEW.md`):
 ## Changes in revision 6
 
 - Pool LP fee tier 12500 (1.25%) instead of 3000. IMD's `univ4_hook` policy v34 for mainnet (created 2026-10-07) allows only `[12500]` for hook launches; the `[500, 3000, 10000]` allowlist recorded in Phase 0 now applies to `evm_project` launches. The hook is fee-agnostic, so only the launch manifest, the post-launch pool-key default and the site's sample arithmetic change.
+
+## Changes in revision 7
+
+What the free checks before the mainnet launch changed (2026-10-12). Nothing had been paid to IMD and neither the token nor the hook was deployed when they were made.
+
+1. **Liquidity gate: the opening transaction, not the opening block.** `afterInitialize` sets a mark in transient storage (EIP-1153) and `beforeAddLiquidity` requires it, so a later transaction is refused even in the block that opened the pool. IMD's audit judge had parked another hook launch (#1183) whose gate exempted the whole opening second "not the factory's opening transaction"; ours exempted the whole opening block. Receipts of three real launches confirm IMD's factory deploys, initialises and seeds in one transaction. `openedAtBlock` stays as a public record. An independent review of the change before launch found nothing blocking and replayed the launch on a mainnet fork through IMD's real factory; it asked for one more regression test, which was added, and for one residual to be disclosed: the mark names no account, so code running later inside the opening transaction could add liquidity too. The factory runs no such code (`docs/REVIEW.md`).
+2. **The reference price is the collection's lowest listing, read by a panel.** The planned question (the 24-hour median of Seaport sales, as chain evidence) cannot be answered: IMD's chain evidence runs a fixed set of recipes (log counts, log sums, rankings, a view-call comparison, Uniswap v4 spot prices), and none yields the price of an NFT sale. A question asking a panel for the identity.md floor on OpenSea had already been attested for someone else (20 seats, 14 agreed within 1%, three minutes). Pupate asks the same of 20 seats with a quorum of 11 within 2%. FloorFeed is unchanged: it pins a question hash and checks the panel, whatever the evidence. The floor also bounds the vault better than a median of past sales, which sits above the market while prices fall and would let a holder sell the vault a seat at 105% of it.
+3. **Developer income includes IMD's launch-wallet share of the pool fee.** IMD's documentation states the 1.25% pool fee as 1% to the wallet that paid for the launch and 0.25% to the network. The spec had recorded this share as undocumented and counted it as zero.
+4. **The paid IMD path was corrected before its first use.** The free check takes an oracle question in a short form and the quote takes the full body; addresses must be lowercase; the challenge request carries no content type; the signer is the wallet's own account, not a wallet client; the x402 client is told it may pay IMD, up to the action's price; the oracle request id is read from the admission's result. The whole flow now runs to the last call before payment in a dry run.
+5. **The launch request launches the exact code.** Its steps are `audit-imported-code → adversarial-review`, the shape IMD admitted for launch #1205: an audit of the code as it is, the manifest, four specialist audits and a judge, where the only node that can write is the manifest node and only to `launch.json`. The earlier request had an adapt step between the two, which gives an agent a write budget over the source to fix what the audit finds. Pupate cannot use that: the hook is bound to a Cocoon that is already deployed.

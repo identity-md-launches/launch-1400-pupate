@@ -27,7 +27,7 @@ export function VaultSheet() {
       </div>
       <div className="plate">{ripest ? <Chrysalis ripe={ripeness(ripest)} id="sheet" /> : <Chrysalis ripe={0} id="sheet" />}</div>
       <div className="rows">
-        <Lead k="Reference price" v={eth(s.floor)} note="IMD oracle, 24h median" />
+        <Lead k="Reference price" v={eth(s.floor)} note="IMD oracle, lowest listing" />
         <Lead k="Seat pot" v={eth(s.seatPot)} />
         <Lead k="Burn pot" v={eth(s.burnPot)} />
         <Lead k="Seats held" v={String(s.seats.length)} note={s.seats.length ? `avg cost ${eth(avgCost(s))}` : undefined} />

@@ -17,7 +17,7 @@ const TUNABLE = [
   ["IMD auction start demand", "20,000 IMD per ETH", "100 to 10,000,000 IMD per ETH", "imdStartPerEth"],
   ["Report freshness", "6 hours", "1 to 24 hours", "FloorFeed.setMaxAge"],
   ["Oracle attester", "IMD's signer", "any address", "FloorFeed.setAttester"],
-  ["Oracle question", "the 24h median question", "any hash; setting it clears the stored price", "FloorFeed.setQuestion"],
+  ["Oracle question", "the collection's floor on OpenSea, by a panel of 20", "any hash; setting it clears the stored price", "FloorFeed.setQuestion"],
   ["Operator", "the developer", "any address", "Cocoon.setOperator"],
 ];
 
@@ -25,8 +25,9 @@ const FIXED = [
   ["Supply", "1,000,000,000 PUPATE"],
   ["Allocation", "85% pool · 10% IMD swarm · 5% developer, vested over 365 days"],
   ["Launch schedule", "99% buy tax at the open, one point lower a minute, 6% after 93 minutes"],
-  ["Liquidity gate", "liquidity enters only the launch pool, only in the block that opened it"],
+  ["Liquidity gate", "liquidity enters only the launch pool, only in the transaction that opened it"],
   ["Split of the tax", "85% strategy · 10% developer · 5% IMD burn"],
+  ["Pool fee", "1.25%, set by IMD's launch policy: 1% to the launch wallet, 0.25% to the IMD network"],
   ["Neutral split", "50% seat pot · 50% burn pot while no report is fresh"],
   ["Target collection", "identity.md, 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D"],
   ["Evidence chain", "fixed at deployment: the chain the collection lives on"],
