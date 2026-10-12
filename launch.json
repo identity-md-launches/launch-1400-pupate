@@ -4,8 +4,8 @@
     "contract": "PupateHook",
     "constructorArgs": [
       "$poolManager",
-      "<COCOON_ADDRESS>",
-      "<TIMELOCK_ADDRESS>"
+      "0x0add7b9584cd73cef21b39014e3ff6077be53441",
+      "0x8be826082c0fbaec485048aa26ef42ac147898ec"
     ],
     "permissions": [
       "afterInitialize",
