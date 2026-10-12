@@ -42,16 +42,15 @@ answers on the port with chain id 31337; run `down` first. Each `up` takes about
    transferred to it; and one call, `open`, that initialises the ETH/PUPATE pool (fee 12500, tick spacing
    60, `sqrtPriceX96 = 792281625142643375935439503360000`, 1 ETH = 100,000,000 PUPATE, a 10 ETH opening
    valuation) and seeds it in the same transaction, because `PupateHook.beforeAddLiquidity` admits
-   liquidity only in the block that opened the pool. The seed is the single-sided position of
-   `test/utils/PoolSetup.sol::_seed`: from tick −887220 up to 184200, the tick-spacing boundary at or
+   liquidity only in the transaction that opened the pool. The seed is the single-sided position of
+   `test/utils/PoolSetup.sol::_openParams`: from tick −887220 up to 184200, the tick-spacing boundary at or
    below the opening tick 184216, liquidity `tokens * 2^96 / (sqrtP(upper) − sqrtP(lower))`; it needs no
    ETH and buys walk the price down into it. The 8158 wei of rounding dust goes back to the deployer.
    Finally the 10% swarm share goes to account #8 (`SWARM_SHARE_TO`), so that the deployer is left with
    exactly the 5% that reaches the requester's wallet on mainnet.
 5. `script/PostLaunch.s.sol`, unchanged: wires Cocoon, vests the deployer's 5% for 12 months, pins
    `QUESTION_HASH`, hands FloorFeed and Cocoon to the timelock. `QUESTION_HASH` is keccak256 of the exact
-   bytes of `keeper/questions/floor.question.txt` (660 bytes, LF-terminated):
-   `0x173247aad65a0cc1f5fc7a16d5425f62757310f41a725c22bf85995bfedb3ef1`. This is a local stand-in:
+   bytes of `keeper/questions/floor.question.txt` (268 bytes, LF-terminated). This is a local stand-in:
    the real `questionHash` is not derivable from the text (`docs/phase0-findings.md` §4) and comes from
    the IMD API's response to the first oracle request.
 6. `script/local/ReportLocal.s.sol`: signs an attestation with account #9's key exactly as

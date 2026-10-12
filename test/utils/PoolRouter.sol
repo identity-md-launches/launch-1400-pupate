@@ -46,6 +46,18 @@ contract PoolRouter is IUnlockCallback {
         return _run(Job(msg.sender, key, false, none, params));
     }
 
+    /// @dev Initialises `key` and adds its first liquidity in one call, the way a launch factory opens
+    /// and seeds a pool in one transaction.
+    function open(PoolKey memory key, uint160 sqrtPriceX96, ModifyLiquidityParams memory params)
+        external
+        payable
+        returns (BalanceDelta)
+    {
+        manager.initialize(key, sqrtPriceX96);
+        SwapParams memory none;
+        return _run(Job(msg.sender, key, false, none, params));
+    }
+
     function unlockCallback(bytes calldata data) external returns (bytes memory) {
         require(msg.sender == address(manager), "not manager");
         Job memory job = abi.decode(data, (Job));

@@ -15,7 +15,7 @@ import {IERC20Minimal} from "../../src/interfaces/IERC20Minimal.sol";
 
 /// @notice LOCAL ONLY. Stands in for the last step of IMD's launch factory: initialise the launch pool
 /// and seed it with the token share in ONE transaction. `PupateHook.beforeAddLiquidity` admits
-/// liquidity only in the block that opened the pool, so the two steps cannot be separate transactions.
+/// liquidity only in the transaction that opened the pool, so the two steps cannot be separate transactions.
 /// @dev The seed is the single-sided position of `test/utils/PoolSetup.sol::_seed`: every token this
 /// contract holds, from the lowest usable tick up to the tick-spacing boundary at or below the opening
 /// tick. It needs no ETH; buys walk the price down into it. The position stays owned by this contract,

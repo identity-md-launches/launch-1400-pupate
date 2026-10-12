@@ -30,7 +30,7 @@ abstract contract PoolSetup is Test {
     PoolRouter internal router;
     PupateToken internal token;
 
-    /// @dev The last position `_seed` opened, so tests can remove from it.
+    /// @dev The last position `_openParams` described, so tests can remove from it.
     int24 internal seedLower;
     int24 internal seedUpper;
     uint256 internal seedLiquidity;
@@ -51,15 +51,20 @@ abstract contract PoolSetup is Test {
             PoolKey(CurrencyLibrary.ADDRESS_ZERO, Currency.wrap(quote), LP_FEE, TICK_SPACING, IHooks(hooks));
     }
 
+    /// @dev Opens a pool the way the launch factory does: initialised and seeded by one call, so in
+    /// one transaction whatever mode the tests run in.
     function _open(PoolKey memory poolKey, uint256 tokens) internal {
-        manager.initialize(poolKey, SQRT_PRICE_OPEN);
-        _seed(poolKey, tokens);
+        router.open(poolKey, SQRT_PRICE_OPEN, _openParams(poolKey, tokens));
     }
 
-    /// @dev Adds `tokens` of currency1 as one-sided liquidity from the lowest usable tick up to the tick
-    /// spacing boundary at or below the current tick. It needs no ETH, and buys walk the price into it.
-    function _seed(PoolKey memory poolKey, uint256 tokens) internal {
-        (, int24 tick,,) = StateLibrary.getSlot0(manager, poolKey.toId());
+    /// @dev The opening position of a launch: `tokens` of currency1 as one-sided liquidity from the
+    /// lowest usable tick up to the tick spacing boundary at or below the opening tick. It needs no ETH,
+    /// and buys walk the price into it.
+    function _openParams(PoolKey memory poolKey, uint256 tokens)
+        internal
+        returns (ModifyLiquidityParams memory)
+    {
+        int24 tick = TickMath.getTickAtSqrtPrice(SQRT_PRICE_OPEN);
         int24 upper = (tick / poolKey.tickSpacing) * poolKey.tickSpacing;
         if (tick < 0 && tick % poolKey.tickSpacing != 0) upper -= poolKey.tickSpacing;
         int24 lower = TickMath.minUsableTick(poolKey.tickSpacing);
@@ -68,7 +73,7 @@ abstract contract PoolSetup is Test {
         seedLower = lower;
         seedUpper = upper;
         seedLiquidity = liquidity;
-        router.addLiquidity(poolKey, ModifyLiquidityParams(lower, upper, int256(liquidity), bytes32(0)));
+        return ModifyLiquidityParams(lower, upper, int256(liquidity), bytes32(0));
     }
 
     function _limit(bool zeroForOne) internal pure returns (uint160) {

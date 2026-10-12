@@ -137,8 +137,9 @@ contract CocoonSeaportForkTest is Test {
         }
         address holder = collection.ownerOf(SEAT);
         // Falls from 2.88 to 2.4 ETH over 7 days.
-        OrderParameters memory listing =
-            _holderListsTerms(holder, SeatListing.Terms(2.4 ether, 12_000, 10_000, 7 days, uint40(block.timestamp), 0));
+        OrderParameters memory listing = _holderListsTerms(
+            holder, SeatListing.Terms(2.4 ether, 12_000, 10_000, 7 days, uint40(block.timestamp), 0)
+        );
         uint256 ceiling = 2.88 ether;
 
         vm.warp(block.timestamp + 3.5 days);
@@ -267,7 +268,9 @@ contract CocoonSeaportForkTest is Test {
             return;
         }
         address holder = collection.ownerOf(SEAT);
-        _holderListsTerms(holder, SeatListing.Terms(2.8 ether, 10_000, 10_000, 7 days, uint40(block.timestamp), 0));
+        _holderListsTerms(
+            holder, SeatListing.Terms(2.8 ether, 10_000, 10_000, 7 days, uint40(block.timestamp), 0)
+        );
         _report(2.8 ether);
         cocoon.depositTax{value: 10 ether}();
         vm.prank(keeper);
@@ -371,7 +374,11 @@ contract CocoonSeaportForkTest is Test {
 
     function _flatParams(address holder, uint256 price) internal view returns (OrderParameters memory) {
         return SeatListing.parameters(
-            holder, COLLECTION, SEAT, SeatListing.Terms(price, 10_000, 10_000, 7 days, uint40(block.timestamp), 0), 0
+            holder,
+            COLLECTION,
+            SEAT,
+            SeatListing.Terms(price, 10_000, 10_000, 7 days, uint40(block.timestamp), 0),
+            0
         );
     }
 
@@ -390,8 +397,9 @@ contract CocoonSeaportForkTest is Test {
 
     /// @dev The order hashes of our two current listings for SEAT, on the live Seaport's counter.
     function _ourOrderHashes() internal view returns (bytes32[2] memory out) {
-        OrderComponents[] memory ours =
-            SeatListing.components(address(cocoon), COLLECTION, SEAT, _ourTerms(), seaport.getCounter(address(cocoon)));
+        OrderComponents[] memory ours = SeatListing.components(
+            address(cocoon), COLLECTION, SEAT, _ourTerms(), seaport.getCounter(address(cocoon))
+        );
         out[0] = seaport.getOrderHash(ours[0]);
         out[1] = seaport.getOrderHash(ours[1]);
     }
@@ -399,7 +407,8 @@ contract CocoonSeaportForkTest is Test {
     function _assertBalanceIdentity() internal view {
         assertEq(
             address(cocoon).balance,
-            cocoon.seatPot() + cocoon.burnPot() + cocoon.developerBalance() + cocoon.imdBurnBalance() + strayWei,
+            cocoon.seatPot() + cocoon.burnPot() + cocoon.developerBalance() + cocoon.imdBurnBalance()
+                + strayWei,
             "balance identity (plus the forced-in stray that skim would book)"
         );
     }

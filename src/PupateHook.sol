@@ -23,8 +23,8 @@ import {ITaxSink} from "./interfaces/ITaxSink.sol";
 /// contract other than the PoolManager is called from a swap callback. `flush` turns the claims into
 /// ETH and hands them to the sink. The hook's address must encode afterInitialize, beforeSwap,
 /// beforeAddLiquidity, afterSwap, beforeSwapReturnDelta and afterSwapReturnDelta: low 14 bits 0x18CC.
-/// Liquidity can be added only to the launch pool and only in the block that opens it, so after the
-/// launch the pool's liquidity can only shrink and nobody can trade by resting liquidity untaxed.
+/// Liquidity can be added only to the launch pool and only in the transaction that opens it, so after
+/// the launch the pool's liquidity can only shrink and nobody can trade by resting liquidity untaxed.
 contract PupateHook is IUnlockCallback {
     using SafeCast for uint256;
 
@@ -49,6 +49,9 @@ contract PupateHook is IUnlockCallback {
     uint256 public constant LAUNCH_DECAY_BPS_PER_MINUTE = 100;
     /// @dev ERC-6909 id of native ETH on the PoolManager.
     uint256 private constant ETH_CLAIM_ID = 0;
+    /// @dev Transient storage slot (EIP-1153) holding 1 from the moment the launch pool is initialised
+    /// to the end of that transaction, and 0 at every other time.
+    uint256 private constant OPENING_SLOT = uint256(keccak256("pupate.hook.opening")) - 1;
 
     IPoolManager public immutable poolManager;
     /// @notice Receives every flushed wei. Swaps the sink makes itself are not taxed.
@@ -60,7 +63,8 @@ contract PupateHook is IUnlockCallback {
     uint40 public openedAt;
     /// @notice Standing tax on the ETH side of every buy and sell, in basis points.
     uint16 public taxBps = 600;
-    /// @notice Block in which the launch pool was initialised. Liquidity can be added in that block only.
+    /// @notice Block in which the launch pool was initialised. For the record only: liquidity is gated
+    /// by the opening transaction, not by this block.
     uint40 public openedAtBlock;
     /// @notice The first native-ETH pool initialised on this hook. Only this pool is taxed.
     PoolId public launchPool;
@@ -121,24 +125,33 @@ contract PupateHook is IUnlockCallback {
             launchPool = id;
             openedAt = uint40(block.timestamp);
             openedAtBlock = uint40(block.number);
+            // Marks the rest of this transaction as the opening one. Transient storage is wiped when the
+            // transaction ends, so the mark cannot outlive it.
+            uint256 slot = OPENING_SLOT;
+            assembly ("memory-safe") {
+                tstore(slot, 1)
+            }
             emit LaunchPoolSet(id, block.timestamp);
         }
         return IHooks.afterInitialize.selector;
     }
 
     /// @notice `IHooks.beforeAddLiquidity`. Admits liquidity only into the launch pool, and only in
-    /// the block that opened it: the factory opens and seeds the pool in one transaction. Removing
-    /// liquidity is never gated.
+    /// the transaction that opened it: the factory opens and seeds the pool in one transaction, and a
+    /// later transaction finds the pool closed, even in the same block. Removing liquidity is never
+    /// gated.
     function beforeAddLiquidity(address, PoolKey calldata key, ModifyLiquidityParams calldata, bytes calldata)
         external
         view
         onlyPoolManager
         returns (bytes4)
     {
-        uint256 opened = openedAtBlock;
-        if (opened == 0 || block.number != opened || PoolId.unwrap(key.toId()) != PoolId.unwrap(launchPool)) {
-            revert LiquidityClosed();
+        uint256 slot = OPENING_SLOT;
+        uint256 opening;
+        assembly ("memory-safe") {
+            opening := tload(slot)
         }
+        if (opening == 0 || PoolId.unwrap(key.toId()) != PoolId.unwrap(launchPool)) revert LiquidityClosed();
         return IHooks.beforeAddLiquidity.selector;
     }
 

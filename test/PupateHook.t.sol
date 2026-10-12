@@ -12,6 +12,7 @@ import {ModifyLiquidityParams, SwapParams} from "v4-core/src/types/PoolOperation
 import {PupateHook} from "../src/PupateHook.sol";
 import {PupateToken} from "../src/PupateToken.sol";
 import {HookFixture} from "./utils/HookFixture.sol";
+import {PoolRouter} from "./utils/PoolRouter.sol";
 
 contract PupateHookTest is HookFixture {
     // ------------------------------------------------------------------ construction
@@ -73,7 +74,8 @@ contract PupateHookTest is HookFixture {
         assertEq(PoolId.unwrap(hook.launchPool()), PoolId.unwrap(key.toId()));
         assertEq(hook.openedAt(), T0);
 
-        // Same block as the launch pool opened, so only the pool check can reject this.
+        // A later transaction, so the opening mark is gone as well. The pool check on its own is shown
+        // by test_inTheOpeningTransactionOnlyTheLaunchPoolTakesLiquidity.
         vm.expectRevert(_hookRevert(IHooks.beforeAddLiquidity.selector, PupateHook.LiquidityClosed.selector));
         router.addLiquidity(second, ModifyLiquidityParams(-887_220, 887_220, 1e18, bytes32(0)));
     }
@@ -462,13 +464,113 @@ contract PupateHookTest is HookFixture {
 
     // ------------------------------------------------------------------ liquidity gate
 
-    function test_liquidityCanBeAddedOnlyInTheBlockTheLaunchPoolOpened() public {
-        assertEq(hook.openedAtBlock(), block.number);
-        _seed(key, 1_000 ether);
+    function test_theOpeningTransactionSeedsTheLaunchPool() public {
+        // What the fixture does in setUp, on a hook of its own: one call initialises the pool and adds
+        // its liquidity, as the launch factory does in one transaction.
+        PupateHook fresh = _deployHook(address(sink), owner);
+        PupateToken other = new PupateToken();
+        other.approve(address(router), type(uint256).max);
+        PoolKey memory pool = _ethPool(address(other), address(fresh));
 
+        _open(pool, 1_000 ether);
+
+        assertEq(PoolId.unwrap(fresh.launchPool()), PoolId.unwrap(pool.toId()));
+        assertApproxEqAbs(other.balanceOf(address(manager)), 1_000 ether, 1e6, "the pool holds the seed");
+    }
+
+    function test_liquidityIsClosedOnceTheOpeningTransactionEnds() public {
+        // setUp opened and seeded the pool in one transaction. This is the next transaction, in the very
+        // same block: nothing has rolled, and the pool is already closed.
+        assertEq(hook.openedAtBlock(), block.number);
+        vm.expectRevert(_hookRevert(IHooks.beforeAddLiquidity.selector, PupateHook.LiquidityClosed.selector));
+        router.addLiquidity(key, ModifyLiquidityParams(seedLower, seedUpper, 1e15, bytes32(0)));
+    }
+
+    function test_liquidityStaysClosedInLaterBlocks() public {
         vm.roll(block.number + 1);
         vm.expectRevert(_hookRevert(IHooks.beforeAddLiquidity.selector, PupateHook.LiquidityClosed.selector));
         router.addLiquidity(key, ModifyLiquidityParams(seedLower, seedUpper, 1e15, bytes32(0)));
+    }
+
+    function test_inTheOpeningTransactionOnlyTheLaunchPoolTakesLiquidity() public {
+        PupateHook fresh = _deployHook(address(sink), owner);
+        PupateToken first = new PupateToken();
+        PupateToken other = new PupateToken();
+        OpeningProbe probe = new OpeningProbe();
+        first.transfer(address(probe), 1_000 ether);
+        PoolKey memory launch = _ethPool(address(first), address(fresh));
+        PoolKey memory second = _ethPool(address(other), address(fresh));
+
+        (bool launchTook, bytes memory refusal) =
+            probe.run(manager, router, launch, second, SQRT_PRICE_OPEN, _openParams(launch, 1_000 ether));
+
+        assertTrue(launchTook, "the launch pool is seeded in its opening transaction");
+        assertEq(PoolId.unwrap(fresh.launchPool()), PoolId.unwrap(launch.toId()));
+        assertEq(
+            refusal,
+            _hookRevertFrom(
+                address(fresh), IHooks.beforeAddLiquidity.selector, PupateHook.LiquidityClosed.selector
+            ),
+            "the second pool refuses liquidity even while the opening mark is set"
+        );
+    }
+
+    function test_laterPoolsOnTheHookDoNotReopenTheLaunchPool() public {
+        // A later transaction initialises two more pools on the hook, one with native ETH and one
+        // without, and then offers the launch pool liquidity. Only the launch pool's own
+        // initialisation sets the opening mark, so the offer is refused.
+        PupateToken a = new PupateToken();
+        PupateToken b = new PupateToken();
+        ReopeningProbe probe = new ReopeningProbe();
+        token.transfer(address(probe), 1_000 ether);
+        (address low, address high) =
+            address(a) < address(b) ? (address(a), address(b)) : (address(b), address(a));
+        PoolKey memory pair =
+            PoolKey(Currency.wrap(low), Currency.wrap(high), LP_FEE, TICK_SPACING, IHooks(address(hook)));
+
+        (bool taken, bytes memory refusal) = probe.run(
+            manager,
+            router,
+            key,
+            _ethPool(address(a), address(hook)),
+            pair,
+            SQRT_PRICE_OPEN,
+            ModifyLiquidityParams(seedLower, seedUpper, 1e15, bytes32(0))
+        );
+
+        assertFalse(taken, "a later initialise reopened the launch pool");
+        assertEq(
+            refusal, _hookRevert(IHooks.beforeAddLiquidity.selector, PupateHook.LiquidityClosed.selector)
+        );
+        assertEq(PoolId.unwrap(hook.launchPool()), PoolId.unwrap(key.toId()));
+    }
+
+    function test_theOpeningTransactionIsTheGateNotTheAccountThatOpens() public {
+        // The known residual, pinned: the mark lasts until the opening transaction ends and names no
+        // account, so anything that gets control later in that transaction can still add to the
+        // launch pool. Here a second router rests an ETH-only range above the price after the seed.
+        // The launch factory calls only the PoolManager, the token and its own contracts in that
+        // transaction, so on a real launch nobody else gets that control. What the next transaction
+        // meets is test_liquidityIsClosedOnceTheOpeningTransactionEnds.
+        PupateHook fresh = _deployHook(address(sink), owner);
+        PupateToken other = new PupateToken();
+        PoolRouter second = new PoolRouter(manager);
+        SameTransactionProbe probe = new SameTransactionProbe();
+        other.transfer(address(probe), 1_000 ether);
+        PoolKey memory pool = _ethPool(address(other), address(fresh));
+        uint256 ethInThePoolManager = address(manager).balance;
+
+        bool taken = probe.run{value: 1 ether}(
+            router,
+            second,
+            pool,
+            SQRT_PRICE_OPEN,
+            _openParams(pool, 1_000 ether),
+            ModifyLiquidityParams(184_260, 184_320, 1e24, bytes32(0))
+        );
+
+        assertTrue(taken, "inside the opening transaction a second sender adds");
+        assertGt(address(manager).balance, ethInThePoolManager, "the resting ETH is in the pool");
     }
 
     function test_liquidityCanStillBeRemovedAfterTheOpeningBlock() public {
@@ -500,5 +602,77 @@ contract PupateHookTest is HookFixture {
             )
         );
         router.addLiquidity(pair, ModifyLiquidityParams(-887_220, 887_220, 1e18, bytes32(0)));
+    }
+}
+
+/// @dev One opening transaction as one external call, so it is a single transaction in every test
+/// mode: a launch pool and a second native pool are initialised on the same hook, the launch pool is
+/// seeded, and the second pool is offered liquidity it must refuse.
+contract OpeningProbe {
+    function run(
+        IPoolManager manager,
+        PoolRouter router,
+        PoolKey memory launch,
+        PoolKey memory second,
+        uint160 sqrtPriceX96,
+        ModifyLiquidityParams memory seed
+    ) external returns (bool launchTook, bytes memory secondRefusal) {
+        manager.initialize(launch, sqrtPriceX96);
+        manager.initialize(second, sqrtPriceX96);
+        PupateToken(Currency.unwrap(launch.currency1)).approve(address(router), type(uint256).max);
+        router.addLiquidity(launch, seed);
+        launchTook = true;
+        try router.addLiquidity(second, ModifyLiquidityParams(-887_220, 887_220, 1e18, bytes32(0))) {
+        // admitted: the refusal stays empty, and the caller's comparison with LiquidityClosed fails
+        }
+        catch (bytes memory refusal) {
+            // if the hook admitted the add and it failed later (it sends no ETH), this is that other
+            // error, and the caller's comparison fails as well
+            secondRefusal = refusal;
+        }
+    }
+}
+
+/// @dev A later transaction as one external call: two more pools are initialised on the hook, one with
+/// native ETH and one without, and the launch pool is then offered liquidity it must refuse.
+contract ReopeningProbe {
+    function run(
+        IPoolManager manager,
+        PoolRouter router,
+        PoolKey memory launch,
+        PoolKey memory secondNative,
+        PoolKey memory pair,
+        uint160 sqrtPriceX96,
+        ModifyLiquidityParams memory offer
+    ) external returns (bool taken, bytes memory refusal) {
+        manager.initialize(secondNative, sqrtPriceX96);
+        manager.initialize(pair, sqrtPriceX96);
+        PupateToken(Currency.unwrap(launch.currency1)).approve(address(router), type(uint256).max);
+        try router.addLiquidity(launch, offer) {
+            taken = true;
+        } catch (bytes memory reason) {
+            refusal = reason;
+        }
+    }
+}
+
+/// @dev One opening transaction as one external call: `opener` initialises and seeds the pool, and a
+/// second router then adds liquidity of its own before the transaction ends.
+contract SameTransactionProbe {
+    receive() external payable {}
+
+    function run(
+        PoolRouter opener,
+        PoolRouter second,
+        PoolKey memory pool,
+        uint160 sqrtPriceX96,
+        ModifyLiquidityParams memory seed,
+        ModifyLiquidityParams memory resting
+    ) external payable returns (bool taken) {
+        PupateToken(Currency.unwrap(pool.currency1)).approve(address(opener), type(uint256).max);
+        opener.open(pool, sqrtPriceX96, seed);
+        try second.addLiquidity{value: msg.value}(pool, resting) {
+            taken = true;
+        } catch {}
     }
 }
