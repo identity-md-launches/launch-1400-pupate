@@ -5,7 +5,8 @@
     "chainId": 11155111,
     "pairWith": "eth",
     "economics": {
-      "poolBps": 8500
+      "poolBps": 8500,
+      "remainderTo": "0x7a2b112af54419ed0b18e051027f3142c13441d9"
     },
     "repoUrl": "https://github.com/pupate-IMD/PUPATE",
     "baseCommit": "bfdb454af44d863229fcd8d52c8eb86a215d0eda",
