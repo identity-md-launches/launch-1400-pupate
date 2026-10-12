@@ -96,3 +96,44 @@ Cocoon, PupateHook, PupateToken, FloorFeed are not touched. The Cards only read 
 4. Optional: the work feed through the IMD oracle, for traits.
 
 Rough size: two small contracts and a miner UI, two to three weeks including review.
+
+## Metamorphosis as the mining loop (owner's direction, 2026-10-12)
+
+The hash work is not a lottery ticket for one mint; it is how a card grows through four stages, each
+gated by proof of work from the miner's CPU or GPU, and the last one by the seat's real life.
+
+| Stage | How it is reached | What the miner does | Burn |
+|---|---|---|---|
+| **Egg** | a solution under the epoch target (`keccak(minter, seat, epoch, nonce) < target`) plus the mint fee | one solution, CPU or GPU | mint fee in PUPATE, burned |
+| **Larva** | the egg hatches on the first feed | **feeds** the card: keeps mining and submits solutions in batches; each accepted batch raises the card's `work` counter; the card's drawing fills in as `work` grows | none beyond gas (optionally a small PUPATE fee per batch, burned) |
+| **Chrysalis** | `work` reaches the pupation threshold, which scales with the seat's real accepted jobs (via the work feed): a harder-working seat makes a card that takes more mining to pupate | stops; the card is sealed for a cocoon period of N epochs | pupation fee in PUPATE, burned |
+| **Butterfly** | the cocoon period has passed **and** the seat's listing has sold (`Cocoon.SeatSold`), or, failing a sale, after a long ceiling (e.g. 90 days) so no card is stuck | nothing; the metamorphosis is the seat's | none |
+
+Why this fits better than a plain mint race:
+
+- **Breadth, not depth.** Each card can absorb at most `cap` solutions per epoch. A GPU farm cannot
+  push one card through the larva stage faster than a phone; it can only raise more eggs, and every
+  egg burns PUPATE. The GPU's advantage becomes burn volume, which is what the token wants.
+- **CPU and GPU both count.** The puzzle is plain keccak256 over `(minter, seat, epoch, nonce)`, so
+  the browser miner (a Web Worker on CPU, a WebGPU compute shader where available) and a standalone
+  CLI miner (Node for CPU, OpenCL/CUDA for GPU, same puzzle) submit the same kind of solution. A
+  solution is bound to the minter's address, so pools and relays cannot steal it.
+- **Difficulty and price rise together.** The epoch target retargets toward a network-wide cadence
+  (for example one accepted solution per ten seconds) and the mint fee rises per epoch (×1.25), as
+  decided; later miners work harder and burn more per card.
+- **Real work sets the bar.** The pupation threshold reads the seat's accepted jobs from the work feed
+  (IMD's records, through the oracle). Cards of seats that worked more are harder to pupate and
+  rarer as butterflies: the proof of work in the hash is spent on a proof of work by a seat.
+- **Gas stays small.** Solutions are submitted in batches (`feed(cardId, nonces[])`, one transaction
+  per epoch per card); each nonce costs one keccak and a compare. At today's mainnet fees that is
+  cents.
+
+State machine on-chain (`ChrysalisCards`): `stage ∈ {Egg, Larva, Chrysalis, Butterfly}`, `work`,
+`pupatedAtEpoch`, `seat`, `round`; `tokenURI` draws the stage. `CardMine`: epochs, target, per-card
+and per-wallet caps, batch verification, fees burned through `PupateToken.burnFrom`. Cocoon,
+PupateHook, PupateToken and FloorFeed are read, never changed. Resale royalty 5% to the developer,
+enforced with a creator-token transfer validator and a Seaport zone of our own.
+
+Still after the mainnet launch and the first cocoon; the numbers (cap, cadence, cocoon period,
+pupation formula, fees) are set when the contracts are built and reviewed, and published on the Mine
+page before mining opens.
