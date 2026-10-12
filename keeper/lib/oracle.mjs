@@ -1,13 +1,12 @@
 // Floor reports: when one is due, and where the attestation comes from.
 //   local  signs one with LOCAL_ATTESTER_KEY the way script/local/ReportLocal.s.sol does (fork only)
-//   imd    the paid IMD flow (0.5 IMD): check, quote, pay, wait for admission, fetch the attestation.
-//          UNTESTED end to end here (no funded IMD wallet in this environment); the mapping of the
-//          API's JSON to the struct follows the real attestation in test/OracleAttestation.t.sol.
+//   imd    the paid IMD flow (0.5 IMD): check (short form), quote (full body), pay, wait for
+//          admission, then follow the oracle request to its attestation. The mapping of the API's
+//          JSON to the struct follows the real attestation in test/OracleAttestation.t.sol.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { createWalletClient, encodeAbiParameters, hexToBigInt, http, keccak256, pad, recoverTypedDataAddress, toHex, zeroHash } from 'viem';
+import { encodeAbiParameters, hexToBigInt, keccak256, pad, recoverTypedDataAddress, toHex, zeroHash } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { mainnet, sepolia } from 'viem/chains';
 import { KEEPER_ROOT } from './config.mjs';
 import { ImdError, createImd, newRequestToken } from './imd.mjs';
 import { fmtDuration, log } from './log.mjs';
@@ -170,26 +169,54 @@ export function floorQuestion() {
   return readFileSync(join(KEEPER_ROOT, 'questions', 'floor.question.txt'), 'utf8').trim();
 }
 
-/** Exactly the body `bin/imd.mjs floor-body` writes, with this feed as the consumer. */
+/**
+ * How the floor question is put to the panel. It is answered from public marketplaces, not from a
+ * chain recipe: IMD's chain evidence can count and sum logs and read v4 pool prices, and none of those
+ * yields the price of a seat. So twenty seats each read the collection's floor on OpenSea, eleven must
+ * agree within 2%, and the oracle signs that answer. FloorFeed asks for a quorum of at least four that
+ * is also a majority of the panel, which eleven of twenty is.
+ */
+export const FLOOR_PANEL = { size: 20, quorum: 11, toleranceBps: 200 };
+
+/** The short form IMD's free check takes for an oracle question; it refuses the full body. */
+export function floorCheckInput(evidenceChainId = 1) {
+  return {
+    question: floorQuestion(),
+    panelSize: FLOOR_PANEL.size,
+    answerType: 'uint256',
+    evidence: 'panel',
+    chainId: Number(evidenceChainId),
+    toleranceBps: FLOOR_PANEL.toleranceBps,
+  };
+}
+
+/**
+ * The full body that is quoted and paid for, with this feed as the consumer. Keep it byte for byte
+ * the same between requests: the oracle's questionHash, which FloorFeed pins, is derived from it.
+ */
 export function floorQuoteInput(feed, consumerChainId, evidenceChainId = 1) {
   return {
+    v: 1,
     question: floorQuestion(),
     chainId: Number(evidenceChainId),
     window: { hours: 24 },
     answerType: 'uint256',
-    evidence: 'chain',
-    panelSize: 5,
-    quorum: 4,
-    toleranceBps: 0,
+    evidence: 'panel',
+    panelSize: FLOOR_PANEL.size,
+    quorum: FLOOR_PANEL.quorum,
+    toleranceBps: FLOOR_PANEL.toleranceBps,
     validForSeconds: 86400,
-    consumer: { chainId: Number(consumerChainId), verifyingContract: feed },
     definitions: {
-      sale: 'One Seaport 1.6 OrderFulfilled event whose offer transfers exactly one ERC-721 token of the collection and whose consideration items are all native ETH or WETH.',
-      price: "The sum of that event's consideration amounts, in wei.",
-      median: 'The middle value of the sorted prices; for an even count, the lower of the two middle values.',
-      missing: 'Fewer than 3 sales in the window means unavailable. Never substitute an ask, a bid or an older sale.',
+      'floor price':
+        'The lowest price at which one token of the collection can be bought now through an active fixed-price listing, as OpenSea reports it for the collection: its collection floor price. Offers, bids, last sales, and expired or cancelled listings do not count.',
+      wei: 'The ETH figure OpenSea reports, unrounded, times 10^18. Example: 1.90927932 ETH is 1909279320000000000. Do not convert from a USD figure and do not use a rounded display value.',
+      missing:
+        'If OpenSea reports no floor price for the collection or cannot be reached, report unavailable. Never substitute a figure from another marketplace, a last sale or an offer.',
     },
-    guards: { sources: ['https://etherscan.io'], minSources: 1 },
+    // Sanity bounds on the answer, in wei: 0.05 ETH to 1,000 ETH.
+    guards: { min: '50000000000000000', max: '1000000000000000000000' },
+    // IMD takes addresses in lowercase only (a checksummed one is refused at the quote).
+    consumer: { chainId: Number(consumerChainId), verifyingContract: String(feed).toLowerCase() },
   };
 }
 
@@ -206,28 +233,18 @@ function requestToken(cfg) {
   return token;
 }
 
-/** The oracle request id in an order, wherever the API puts it. */
+/**
+ * The oracle request id of an admitted order. The admission's result is
+ * `{kind: "oracle", requestId, jobId, statusUrl, attestationUrl}`; `GET /requests/paid-by/:address`
+ * carries the same object as `result`. Never the order's own `requestKey`, which is also a UUID.
+ */
 export function findRequestId(o) {
-  const direct =
-    o?.oracleRequestId ??
-    o?.result?.requestId ??
-    o?.result?.oracleRequestId ??
-    o?.result?.request?.id ??
-    o?.result?.oracle?.requestId ??
-    o?.output?.requestId ??
-    o?.oracle?.requestId ??
-    o?.resource?.id;
-  if (typeof direct === 'string' && direct) return direct;
-  const seen = new Set();
-  const stack = [o];
-  while (stack.length) {
-    const v = stack.pop();
-    if (!v || typeof v !== 'object' || seen.has(v)) continue;
-    seen.add(v);
-    for (const [k, val] of Object.entries(v)) {
-      if (typeof val === 'string' && /request/i.test(k) && /^[0-9a-f-]{32,36}$/i.test(val)) return val;
-      if (val && typeof val === 'object') stack.push(val);
-    }
+  const r = o?.admission?.result ?? o?.result;
+  if (!r || typeof r !== 'object') return null;
+  if (typeof r.requestId === 'string' && r.requestId) return r.requestId;
+  for (const url of [r.statusUrl, r.attestationUrl]) {
+    const m = /\/oracle\/requests\/([0-9a-f-]{36})/i.exec(String(url ?? ''));
+    if (m) return m[1];
   }
   return null;
 }
@@ -241,11 +258,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  * and is resumed instead of paid again.
  */
 export async function imdAttestation({ cfg, account, cache, persist, feed, consumerChainId, evidenceChainId, dryRun }) {
-  const paymentChain =
-    cfg.paymentChainId === 1 ? mainnet : cfg.paymentChainId === 11155111 ? sepolia : { ...mainnet, id: cfg.paymentChainId };
-  const transport = cfg.chainId === cfg.paymentChainId ? http(cfg.rpc) : http();
-  const signer = account && !dryRun ? createWalletClient({ account, chain: paymentChain, transport }) : null;
-  const imd = createImd({ api: cfg.imdApi, token: requestToken(cfg), signer, chainId: cfg.paymentChainId });
+  // The keeper's own account signs both the Permit2 payment and the quote approval; IMD is always
+  // paid on the chain the quote names, whatever chain the keeper works on.
+  const signer = account && !dryRun ? account : null;
+  const imd = createImd({ api: cfg.imdApi, token: requestToken(cfg), signer });
   const input = floorQuoteInput(feed, consumerChainId, evidenceChainId);
 
   let pending = cache.pendingReport;
@@ -256,7 +272,7 @@ export async function imdAttestation({ cfg, account, cache, persist, feed, consu
   }
 
   if (!pending) {
-    const check = await imd.check('oracle.request', input);
+    const check = await imd.check('oracle.request', floorCheckInput(evidenceChainId));
     if (check.blockers?.length) throw new Error(`IMD check has blockers: ${JSON.stringify(check.blockers).slice(0, 400)}`);
     if (!signer) {
       log(`dry run: IMD check passed (${check.quote?.amount ?? check.price ?? '0.5 IMD'}); would quote and pay for a floor report to ${feed}`);
@@ -300,10 +316,12 @@ export async function imdAttestation({ cfg, account, cache, persist, feed, consu
     }
     try {
       const req = await imd.oracleRequest(pending.requestId);
-      if (/fail|unavail|reject|expired|cancel|error/i.test(String(req?.status))) {
+      // IMD's statuses: assessing, reproducing, attested, and the ends without an answer below.
+      if (/^(disagreed|blocked|mismatch|refused|failed)$/i.test(String(req?.status))) {
         cache.pendingReport = null;
         persist();
-        throw new Error(`oracle request ${pending.requestId} ended as ${req.status}`);
+        const why = req.failure ? `: ${typeof req.failure === 'string' ? req.failure : JSON.stringify(req.failure)}` : '';
+        throw new Error(`oracle request ${pending.requestId} ended as ${req.status}${why}; the 0.5 IMD bought the panel, not an answer`);
       }
     } catch (e) {
       if (!(e instanceof ImdError)) throw e;

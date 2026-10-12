@@ -4,20 +4,20 @@
 //   node bin/imd.mjs capabilities
 //   node bin/imd.mjs check <action> <body.json>          free check, nothing held
 //   node bin/imd.mjs import <github-url> [contracts|site|code] [ref]
+//   node bin/imd.mjs rehearse <action> <body.json>       everything but the payment: check, quote, the
+//                                                        challenge and both signatures, then stop
 //   node bin/imd.mjs request <action> <body.json>        quote, pay (two signatures), wait for admission
 //   node bin/imd.mjs status <orderId>
 //   node bin/imd.mjs attestation <oracleRequestId>       the typed data and signature for FloorFeed
 //   node bin/imd.mjs floor-body <floorFeedAddress> [consumerChainId]   write questions/floor.quote.json
 //
 // Environment: IMD_API (default https://api.imd.fun), IMD_PAID_TOKEN (kept in .imd/token when
-// unset), KEEPER_PRIVATE_KEY (for request), PAYMENT_CHAIN_ID (default 1).
+// unset), KEEPER_PRIVATE_KEY (for request). IMD is paid on the chain the quote names.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createWalletClient, http } from 'viem';
-import { privateKeyToAccount } from 'viem/accounts';
-import { mainnet, sepolia } from 'viem/chains';
-import { createImd, newRequestToken } from '../lib/imd.mjs';
+import { createImd, newRequestToken, paymentSigner } from '../lib/imd.mjs';
+import { floorCheckInput, floorQuoteInput } from '../lib/oracle.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const api = process.env.IMD_API || 'https://api.imd.fun';
@@ -42,18 +42,24 @@ function requestToken() {
 function signer() {
   const key = process.env.KEEPER_PRIVATE_KEY;
   if (!key) throw new Error('KEEPER_PRIVATE_KEY is needed to pay');
-  const chainId = Number(process.env.PAYMENT_CHAIN_ID || 1);
-  const chain = chainId === 1 ? mainnet : chainId === 11155111 ? sepolia : { ...mainnet, id: chainId };
-  return createWalletClient({ account: privateKeyToAccount(key), chain, transport: http() });
+  return paymentSigner(key);
 }
 
 function print(v) {
   console.log(JSON.stringify(v, null, 2));
 }
 
-/** The floor question FloorFeed consumes. Keep the wording identical across requests: the hash is the pin. */
-function floorQuestion() {
-  return readFileSync(join(root, 'questions', 'floor.question.txt'), 'utf8').trim();
+/**
+ * What IMD's free check accepts. An oracle question is checked in a short form (the full body is
+ * refused there with `Unrecognized keys`) and quoted in full; every other action is checked as it is.
+ */
+function checkInput(action, input) {
+  if (action !== 'oracle.request') return input;
+  const short = {};
+  for (const k of ['question', 'panelSize', 'answerType', 'evidence', 'chainId', 'toleranceBps', 'head']) {
+    if (input[k] !== undefined) short[k] = input[k];
+  }
+  return short;
 }
 
 async function main() {
@@ -65,7 +71,7 @@ async function main() {
       const [action, file] = args;
       const body = readJson(file);
       const input = body.action && body.input ? body.input : body;
-      const out = await createImd({ api }).check(action, input);
+      const out = await createImd({ api }).check(action, checkInput(action, input));
       print(out);
       process.exitCode = out.blockers?.length ? 2 : 0;
       return;
@@ -80,8 +86,8 @@ async function main() {
       const [action, file] = args;
       const body = readJson(file);
       const input = body.action && body.input ? body.input : body;
-      const imd = createImd({ api, token: requestToken(), signer: signer(), chainId: Number(process.env.PAYMENT_CHAIN_ID || 1) });
-      const check = await imd.check(action, input);
+      const imd = createImd({ api, token: requestToken(), signer: signer() });
+      const check = await imd.check(action, checkInput(action, input));
       if (check.blockers?.length) {
         print(check);
         throw new Error('the check has blockers; nothing was quoted');
@@ -94,6 +100,36 @@ async function main() {
       return print(final);
     }
 
+    case 'rehearse': {
+      // The paid flow to its last free step. The quote expires by itself; the signatures are discarded.
+      const [action, file] = args;
+      const body = readJson(file);
+      const input = body.action && body.input ? body.input : body;
+      const imd = createImd({ api, token: requestToken(), signer: signer() });
+      const check = await imd.check(action, checkInput(action, input));
+      if (check.blockers?.length) {
+        print(check);
+        throw new Error('the check has blockers; nothing was quoted');
+      }
+      const { order } = await imd.quote(action, input);
+      const ch = await imd.challenge(order.id);
+      const { payment } = await imd.sign(ch);
+      const permit = payment.payload.permit2Authorization;
+      print({
+        order: order.id,
+        price: order.quote.payment.amount,
+        asset: order.quote.payment.asset,
+        payTo: order.quote.payment.payTo,
+        payer: permit.from,
+        spender: permit.spender,
+        permitValidForSeconds: Number(permit.deadline) - Math.floor(Date.now() / 1000),
+        quoteValidForSeconds: order.quote.expiresAt - Math.floor(Date.now() / 1000),
+        suggestions: (check.suggestions || []).map((s) => s.code),
+        submitted: false,
+      });
+      return;
+    }
+
     case 'status':
       return print(await createImd({ api, token: requestToken() }).status(args[0]));
 
@@ -103,29 +139,8 @@ async function main() {
     case 'floor-body': {
       const [feed, consumerChainId = '1'] = args;
       if (!feed) throw new Error('floor-body needs the FloorFeed address');
-      const checkBody = { action: 'oracle.request', input: { question: floorQuestion(), panelSize: 5 } };
-      const quoteBody = {
-        action: 'oracle.request',
-        input: {
-          question: floorQuestion(),
-          chainId: 1,
-          window: { hours: 24 },
-          answerType: 'uint256',
-          evidence: 'chain',
-          panelSize: 5,
-          quorum: 4,
-          toleranceBps: 0,
-          validForSeconds: 86400,
-          consumer: { chainId: Number(consumerChainId), verifyingContract: feed },
-          definitions: {
-            sale: 'One Seaport 1.6 OrderFulfilled event whose offer transfers exactly one ERC-721 token of the collection and whose consideration items are all native ETH or WETH.',
-            price: 'The sum of that event\'s consideration amounts, in wei.',
-            median: 'The middle value of the sorted prices; for an even count, the lower of the two middle values.',
-            missing: 'Fewer than 3 sales in the window means unavailable. Never substitute an ask, a bid or an older sale.',
-          },
-          guards: { sources: ['https://etherscan.io'], minSources: 1 },
-        },
-      };
+      const checkBody = { action: 'oracle.request', input: floorCheckInput(1) };
+      const quoteBody = { action: 'oracle.request', input: floorQuoteInput(feed, consumerChainId, 1) };
       mkdirSync(join(root, 'questions'), { recursive: true });
       writeFileSync(join(root, 'questions', 'floor.check.json'), JSON.stringify(checkBody, null, 2) + '\n');
       writeFileSync(join(root, 'questions', 'floor.quote.json'), JSON.stringify(quoteBody, null, 2) + '\n');

@@ -153,14 +153,14 @@ keeper itself would look (a fresh floor and a seat pot), which keeps the OpenSea
 - **OpenSea source.** `lib/listings.mjs::listingsFromOpenSea` maps `/api/v2/orders/ethereum/seaport/listings`
   (`protocol_data.parameters` + `signature`) to the AdvancedOrder, but no API key was available here.
   Run it with `DRY_RUN=1` first; it prints what it would buy.
-- **The paid IMD path.** `lib/oracle.mjs::imdAttestation` uses the same client as `bin/imd.mjs request`
-  (check, quote, Permit2 payment plus EIP-712 quote approval, admission), then polls
-  `GET /oracle/requests/{id}/attestation`. The oracle request id is looked up in the admitted order
-  under the usual keys and, failing that, by a recursive search for a UUID under a key naming
-  "request"; the attestation JSON is mapped by `mapApiAttestation` (UUIDs right-padded to bytes32,
-  `"uint256"` → answer type 3, as the real attestation in `test/OracleAttestation.t.sol` shows). None
-  of it has run against the live API from here. The first live report should be run with
-  `--once --force-report` and watched.
+- **The paid IMD path, past its last free step.** `lib/oracle.mjs::imdAttestation` uses the same client as
+  `bin/imd.mjs request`: a check in the short form, a quote of the full body, the Permit2 payment and the
+  EIP-712 quote approval signed by the keeper's own account, admission, then the oracle request named in
+  `admission.result.requestId` until it is attested or ends without an answer. The client has paid for and followed one
+  request on mainnet, the launch's first floor question (`script/mainnet/launch.mjs question`), and
+  `mapApiAttestation` recovers IMD's attester from its attestation. What has not run live is the keeper's
+  own loop around it (the pending order in the state file, the resume after a crash): the keeper's first
+  report should still be run with `--once --force-report` and watched.
 
 ### The fork test
 
@@ -190,16 +190,23 @@ oracle reports and for the launch itself.
 Before the first paid request, the paying wallet approves Permit2 for IMD once:
 
     cast send 0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7 'approve(address,uint256)' \
-      0x000000000022D473030F116dDEE9F6B43aC78BA3 5000000000000000000 --rpc-url $RPC --private-key $KEY
+      0x000000000022D473030F116dDEE9F6B43aC78BA3 $(cast max-uint) --rpc-url $RPC --private-key $KEY
+
+Permit2 only moves what a fresh signature of the wallet allows, so the allowance is unlimited, as the
+x402 client's own approval is; a finite one would stop the keeper's reports when it ran out.
 
 The request token (`IMD_PAID_TOKEN`, or `.imd/token`) is what reads your orders later; keep it.
 
 ## The floor question
 
-`questions/floor.question.txt` is the wording FloorFeed is pinned to: the oracle's `questionHash`
-is derived from it, so a change of wording means a new question and a timelocked `setQuestion`.
-The definitions and guards travel with the quote body, not the check. The keeper builds the same body
-(`lib/oracle.mjs::floorQuoteInput`) with the configured FloorFeed as the consumer.
+`questions/floor.question.txt` is the wording FloorFeed is pinned to: the collection's floor, the lowest
+active listing OpenSea reports, answered by a panel of twenty seats of which eleven must agree within
+2% (`lib/oracle.mjs::FLOOR_PANEL`). It is panel evidence because IMD's chain evidence runs a fixed set
+of recipes (log counts and sums, rankings, a view-call comparison, v4 spot prices) and none yields the
+price of a seat. The oracle's `questionHash` is derived from the body, so a change of wording, panel or
+definitions means a new question and a timelocked `setQuestion`. The check takes the short form
+(`floorCheckInput`); the definitions, the guards and the consumer travel with the quote body
+(`floorQuoteInput`), which the keeper builds with the configured FloorFeed as the consumer.
 
 ## Files
 

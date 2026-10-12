@@ -1,32 +1,30 @@
 {
   "action": "oracle.request",
   "input": {
-    "question": "On Ethereum mainnet, over the pinned block window, consider every OrderFulfilled event emitted by Seaport 1.6 at 0x0000000000000068F116a894984e2DB1123eB395 in which the offer transferred exactly one ERC-721 token of the collection 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D and every consideration item was native ETH or WETH (0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2). Call each such event a sale and its price the sum of its consideration amounts in wei. Return uint256 = the median sale price in wei over the window, taking the lower middle value when the count is even. If fewer than 3 sales exist in the window, report unavailable rather than a number.",
+    "v": 1,
+    "question": "What is the current floor price, in wei, of the identity.md NFT collection at 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D on Ethereum mainnet, defined as the lowest active listing OpenSea reports for the collection at the time of answering? Answer as a uint256 in wei.",
     "chainId": 1,
     "window": {
       "hours": 24
     },
     "answerType": "uint256",
-    "evidence": "chain",
-    "panelSize": 5,
-    "quorum": 4,
-    "toleranceBps": 0,
+    "evidence": "panel",
+    "panelSize": 20,
+    "quorum": 11,
+    "toleranceBps": 200,
     "validForSeconds": 86400,
-    "consumer": {
-      "chainId": 11155111,
-      "verifyingContract": "0x1111111111111111111111111111111111111111"
-    },
     "definitions": {
-      "sale": "One Seaport 1.6 OrderFulfilled event whose offer transfers exactly one ERC-721 token of the collection and whose consideration items are all native ETH or WETH.",
-      "price": "The sum of that event's consideration amounts, in wei.",
-      "median": "The middle value of the sorted prices; for an even count, the lower of the two middle values.",
-      "missing": "Fewer than 3 sales in the window means unavailable. Never substitute an ask, a bid or an older sale."
+      "floor price": "The lowest price at which one token of the collection can be bought now through an active fixed-price listing, as OpenSea reports it for the collection: its collection floor price. Offers, bids, last sales, and expired or cancelled listings do not count.",
+      "wei": "The ETH figure OpenSea reports, unrounded, times 10^18. Example: 1.90927932 ETH is 1909279320000000000. Do not convert from a USD figure and do not use a rounded display value.",
+      "missing": "If OpenSea reports no floor price for the collection or cannot be reached, report unavailable. Never substitute a figure from another marketplace, a last sale or an offer."
     },
     "guards": {
-      "sources": [
-        "https://etherscan.io"
-      ],
-      "minSources": 1
+      "min": "50000000000000000",
+      "max": "1000000000000000000000"
+    },
+    "consumer": {
+      "chainId": 1,
+      "verifyingContract": "0x5a215aa9883cefe5fa74085ba66288388b83700c"
     }
   }
 }
